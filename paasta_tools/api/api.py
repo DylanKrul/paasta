@@ -77,6 +77,7 @@ def make_app(global_config=None):
     config.add_route('service.autoscaler.get', '/v1/services/{service}/{instance}/autoscaler', request_method="GET")
     config.add_route('service.autoscaler.post', '/v1/services/{service}/{instance}/autoscaler', request_method="POST")
     config.add_route('version', '/v1/version')
+    config.add_route('marathon_dashboard', '/v1/marathon_dashboard', request_method="GET")
     config.scan()
     return CORS(config.make_wsgi_app(), headers="*", methods="*", maxage="180", origin="*")
 
@@ -86,13 +87,20 @@ def setup_paasta_api():
     service_configuration_lib.disable_yaml_cache()
 
     # Exit on exceptions while loading settings
-    settings.cluster = load_system_paasta_config().get_cluster()
+    system_paasta_config = load_system_paasta_config()
+    settings.cluster = system_paasta_config.get_cluster()
 
     marathon_config = marathon_tools.load_marathon_config()
     settings.marathon_client = marathon_tools.get_marathon_client(
         marathon_config.get_url(),
         marathon_config.get_username(),
         marathon_config.get_password(),
+    )
+
+    settings.marathon_servers = marathon_tools.get_marathon_servers(system_paasta_config=system_paasta_config)
+    settings.marathon_clients = marathon_tools.get_marathon_clients(
+        marathon_servers=settings.marathon_servers,
+        cached=False,
     )
 
     # Set up transparent cache for http API calls. With expire_after, responses

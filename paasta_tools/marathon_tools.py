@@ -130,6 +130,9 @@ class MarathonClients(object):
         self.current = current
         self.previous = previous
 
+    def __repr__(self):
+        return 'Current: %s | Previous: %s' % (self.current, self.previous)
+
     def get_current_client_for_service(self, job_config: 'MarathonServiceConfig') -> MarathonClient:
         service_instance = compose_job_id(job_config.service, job_config.instance)
         if job_config.get_marathon_shard() is not None:
