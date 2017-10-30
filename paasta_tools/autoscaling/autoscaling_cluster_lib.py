@@ -54,6 +54,7 @@ AutoscalingInfo = namedtuple(
         "instances",
     ],
 )
+
 CLUSTER_METRICS_PROVIDER_KEY = 'cluster_metrics_provider'
 DEFAULT_TARGET_UTILIZATION = 0.8  # decimal fraction
 DEFAULT_DRAIN_TIMEOUT = 600  # seconds

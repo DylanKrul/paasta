@@ -1,14 +1,18 @@
 """
 Provides functions to temporary boost cluster capacity.
-Useful during big service bounce or failovers.
+Useful during big service bounce or failovers to preemptively increase capacity.
 
-This works by setting a temporary multiplier on the cluster's measured load.
-This applies to any resource (cpu, memory, disk)
-If the usage increase overtime, the boost will still apply on top of that.
+This works by setting a temporary multiplier on the initial cluster's measured load.
+The resulting increased capacity is garanteed until the end of the boost.
+If usage gets higher the pool will behave normally and scale up
+This applies to any resource (cpu, memory, disk). Usually the limiting one is the cpu.
 Default duration of the boost factor is 40 minutes and default value is 1.5
 """
 import logging
+from collections import namedtuple
 from datetime import datetime
+
+from kazoo.exceptions import NoNodeError
 
 from paasta_tools.utils import ZookeeperPool
 
@@ -20,12 +24,19 @@ MAX_BOOST_FACTOR = 3.0
 
 MAX_BOOST_DURATION = 240
 
+
+BoostValues = namedtuple(
+    'BoostValues',
+    [
+        'end_time',
+        'boost_factor',
+        'expected_load',
+    ],
+)
+
+
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
-
-
-class BoostAlreadyActiveError(Exception):
-    pass
 
 
 def get_zk_boost_path(region: str, pool: str) -> str:
@@ -35,29 +46,37 @@ def get_zk_boost_path(region: str, pool: str) -> str:
 def get_boosted_load(region: str, pool: str, current_load: float) -> float:
     """Return the load to use for autoscaling calculations, taking into
     account the computed boost, if any.
+
+    This function will fail gracefully no matter what (returning the current load)
+    so we don't block the autoscaler.
     """
     try:
         zk_boost_path = get_zk_boost_path(region, pool)
-        current_time = int(datetime.now().strftime('%s'))
+        current_time = int(datetime.now().timestamp())
 
         with ZookeeperPool() as zk:
-            end_time, boost_factor, expected_load = get_boost_values(region, pool, zk)
+            boost_values = get_boost_values(region, pool, zk)
 
-            if current_time >= end_time:
-                # Boost period is over. If expected_load is still nozero, reset it to 0
-                if expected_load > 0:
+            if current_time >= boost_values.end_time:
+                # If there is an expected_laod value, that means we've just completed
+                # a boost period. Reset it to 0
+                if boost_values.expected_load > 0:
                     zk.set(zk_boost_path + '/expected_load', '0'.encode('utf-8'))
 
+                # Boost is no longer active - return current load with no boost
                 return current_load
 
             # Boost is active. If expected load wasn't already computed, set it now.
-            if expected_load == 0:
-                expected_load = current_load * boost_factor
+            if boost_values.expected_load == 0:
+                expected_load = current_load * boost_values.boost_factor
 
                 log.debug('Activating boost, storing expected load: {} in ZooKeeper'.format(expected_load))
 
                 zk.ensure_path(zk_boost_path + '/expected_load')
                 zk.set(zk_boost_path + '/expected_load', str(expected_load).encode('utf-8'))
+
+            else:
+                expected_load = boost_values.expected_load
 
             # We return the boosted expected_load, but only if the current load isn't greater.
             return expected_load if expected_load > current_load else current_load
@@ -68,21 +87,11 @@ def get_boosted_load(region: str, pool: str, current_load: float) -> float:
         return current_load
 
 
-def is_boost_active(
-    region: str,
-    pool: str,
-    zk: ZookeeperPool,
-) -> bool:
-    current_time = int(datetime.now().strftime('%s'))
-    end_time, _, _ = get_boost_values(region, pool, zk)
-    return current_time < end_time
-
-
 def get_boost_values(
     region: str,
     pool: str,
     zk: ZookeeperPool,
-) -> (int, float, float):
+) -> BoostValues:
     # Default values, non-boost.
     end_time = 0
     boost_factor = 1.0
@@ -94,14 +103,19 @@ def get_boost_values(
         boost_factor = float(zk.get(zk_boost_path + '/factor')[0].decode('utf-8'))
         expected_load = float(zk.get(zk_boost_path + '/expected_load')[0].decode('utf-8'))
 
-    except Exception as e:
-        log.info(e)
-        log.debug('No boost data in Zookeeper for pool {} in region {}.'.format(
-            pool,
-            region,
-        ))
+    except NoNodeError:
+        # If we can't read boost values from zookeeper
+        return BoostValues(
+            end_time=0,
+            boost_factor=1.0,
+            expected_load=0,
+        )
 
-    return end_time, boost_factor, expected_load
+    return BoostValues(
+        end_time=end_time,
+        boost_factor=boost_factor,
+        expected_load=expected_load,
+    )
 
 
 def set_boost_factor(
@@ -112,15 +126,22 @@ def set_boost_factor(
     override=False,
 ) -> bool:
     if factor < MIN_BOOST_FACTOR:
-        raise ValueError('Cannot set a boost factor smaller than {}'.format(MIN_BOOST_FACTOR))
+        log.error('Cannot set a boost factor smaller than {}'.format(MIN_BOOST_FACTOR))
+        return False
 
     if factor > MAX_BOOST_FACTOR:
-        raise ValueError('Boost factor > {} does not sound reasonable'.format(MAX_BOOST_FACTOR))
+        log.warning('Boost factor {} does not sound reasonable. Defaulting to {}'.format(
+            factor,
+            MAX_BOOST_FACTOR,
+        ))
+        factor = MAX_BOOST_FACTOR
 
     if duration_minutes > MAX_BOOST_DURATION:
-        raise ValueError(
-            'Boost duration > {} minutes does not sound reasonable'.format(MAX_BOOST_DURATION),
-        )
+        log.warning('Boost duration of {} minutes is too much. Falling back to {}.'.format(
+            duration_minutes,
+            MAX_BOOST_DURATION,
+        ))
+        duration_minutes = MAX_BOOST_DURATION
 
     zk_boost_path = get_zk_boost_path(region, pool)
     current_time = int(datetime.now().timestamp())
@@ -131,8 +152,12 @@ def set_boost_factor(
     zk_expected_load_path = zk_boost_path + '/expected_load'
 
     with ZookeeperPool() as zk:
-        if not override and is_boost_active(region, pool, zk):
-            raise BoostAlreadyActiveError
+        if (
+            not override and
+            current_time < get_boost_values(region, pool, zk).end_time
+        ):
+            log.error('Boost already active. Not overriding.')
+            return False
 
         try:
             zk.ensure_path(zk_end_time_path)
@@ -145,7 +170,7 @@ def set_boost_factor(
             log.error('Error setting the boost in Zookeeper')
             raise
 
-        log.info('Cluster boost: Setting capacity boost factor {} for pool {} in region {} until {}'.format(
+        log.info('Cluster boost: Set capacity boost factor {} for pool {} in region {} until {}'.format(
             factor,
             pool,
             region,
@@ -153,8 +178,18 @@ def set_boost_factor(
         ))
 
         # Let's check that this factor has been properly written to zk
-        return get_boost_values(region, pool, zk) == (end_time, factor, 0)
+        return get_boost_values(region, pool, zk) == BoostValues(
+            end_time=end_time,
+            boost_factor=factor,
+            expected_load=0,
+        )
 
 
 def clear_boost(region: str, pool: str):
-    return set_boost_factor(region, pool, factor=1, duration_minutes=0, override=True)
+    return set_boost_factor(
+        region=region,
+        pool=pool,
+        factor=1,
+        duration_minutes=0,
+        override=True,
+    )
