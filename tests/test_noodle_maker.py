@@ -19,7 +19,7 @@ from paasta_tools.chronos_tools import ChronosJobConfig
 from paasta_tools.chronos_tools import load_chronos_job_config
 from paasta_tools.marathon_tools import load_marathon_service_config
 from paasta_tools.marathon_tools import MarathonServiceConfig
-from paasta_tools.paasta_service_config import PaastaServiceConfig
+from paasta_tools.noodle_maker import NoodleMaker
 from paasta_tools.utils import DeploymentsJson
 
 
@@ -29,7 +29,7 @@ TEST_CLUSTER_NAME = 'cluster'
 
 
 def create_test_service():
-    return PaastaServiceConfig(
+    return NoodleMaker(
         service=TEST_SERVICE_NAME,
         soa_dir=TEST_SOA_DIR,
         load_deployments=True,
@@ -113,20 +113,20 @@ def adhoc_cluster_config():
     }
 
 
-@patch('paasta_tools.paasta_service_config.read_extra_service_information', autospec=True)
-def test_marathon_instances(mock_read_extra_service_information):
+@patch('paasta_tools.noodle_maker.read_extra_service_information', autospec=True)
+def test_marathon_instance_namess(mock_read_extra_service_information):
     mock_read_extra_service_information.return_value = marathon_cluster_config()
     s = create_test_service()
-    assert [i for i in s.instances(TEST_CLUSTER_NAME, 'marathon')] == ['main', 'canary']
+    assert [i for i in s.instance_names(TEST_CLUSTER_NAME, 'marathon')] == ['main', 'canary']
     mock_read_extra_service_information.assert_called_once_with(
         extra_info='marathon-%s' % TEST_CLUSTER_NAME,
         service_name=TEST_SERVICE_NAME, soa_dir=TEST_SOA_DIR,
     )
 
 
-@patch('paasta_tools.paasta_service_config.load_deployments_json', autospec=True)
-@patch('paasta_tools.paasta_service_config.read_extra_service_information', autospec=True)
-def test_marathon_instances_configs(
+@patch('paasta_tools.noodle_maker.load_deployments_json', autospec=True)
+@patch('paasta_tools.noodle_maker.read_extra_service_information', autospec=True)
+def test_marathon_noodles(
         mock_read_extra_service_information,
         mock_load_deployments_json,
 ):
@@ -167,7 +167,7 @@ def test_marathon_instances_configs(
             soa_dir=TEST_SOA_DIR,
         ),
     ]
-    assert [i for i in s.instance_configs(TEST_CLUSTER_NAME, 'marathon')] == expected
+    assert [i for i in s.noodles(TEST_CLUSTER_NAME, 'marathon')] == expected
     mock_read_extra_service_information.assert_called_once_with(
         extra_info='marathon-%s' % TEST_CLUSTER_NAME,
         service_name=TEST_SERVICE_NAME, soa_dir=TEST_SOA_DIR,
@@ -178,9 +178,9 @@ def test_marathon_instances_configs(
     )
 
 
-@patch('paasta_tools.paasta_service_config.load_deployments_json', autospec=True)
-@patch('paasta_tools.paasta_service_config.read_extra_service_information', autospec=True)
-def test_chronos_instances_configs(
+@patch('paasta_tools.noodle_maker.load_deployments_json', autospec=True)
+@patch('paasta_tools.noodle_maker.read_extra_service_information', autospec=True)
+def test_chronos_noodles(
         mock_read_extra_service_information,
         mock_load_deployments_json,
 ):
@@ -224,7 +224,7 @@ def test_chronos_instances_configs(
             soa_dir=TEST_SOA_DIR,
         ),
     ]
-    assert [i for i in s.instance_configs(TEST_CLUSTER_NAME, 'chronos')] == expected
+    assert [i for i in s.noodles(TEST_CLUSTER_NAME, 'chronos')] == expected
     mock_read_extra_service_information.assert_called_once_with(
         extra_info='chronos-%s' % TEST_CLUSTER_NAME,
         service_name=TEST_SERVICE_NAME, soa_dir=TEST_SOA_DIR,
@@ -235,9 +235,9 @@ def test_chronos_instances_configs(
     )
 
 
-@patch('paasta_tools.paasta_service_config.load_v2_deployments_json', autospec=True)
-@patch('paasta_tools.paasta_service_config.read_extra_service_information', autospec=True)
-def test_adhoc_instances_configs(
+@patch('paasta_tools.noodle_maker.load_v2_deployments_json', autospec=True)
+@patch('paasta_tools.noodle_maker.read_extra_service_information', autospec=True)
+def test_adhoc_noodles(
         mock_read_extra_service_information,
         mock_load_deployments_json,
 ):
@@ -277,9 +277,7 @@ def test_adhoc_instances_configs(
             soa_dir=TEST_SOA_DIR,
         ),
     ]
-    for i in s.instance_configs(TEST_CLUSTER_NAME, 'adhoc'):
-        print(i, i.cluster)
-    assert [i for i in s.instance_configs(TEST_CLUSTER_NAME, 'adhoc')] == expected
+    assert [i for i in s.noodles(TEST_CLUSTER_NAME, 'adhoc')] == expected
     mock_read_extra_service_information.assert_called_once_with(
         extra_info='adhoc-%s' % TEST_CLUSTER_NAME,
         service_name=TEST_SERVICE_NAME, soa_dir=TEST_SOA_DIR,
@@ -290,11 +288,11 @@ def test_adhoc_instances_configs(
     )
 
 
-@patch('paasta_tools.paasta_service_config.load_deployments_json', autospec=True)
+@patch('paasta_tools.noodle_maker.load_deployments_json', autospec=True)
 @patch('paasta_tools.marathon_tools.load_deployments_json', autospec=True)
-@patch('paasta_tools.paasta_service_config.read_extra_service_information', autospec=True)
+@patch('paasta_tools.noodle_maker.read_extra_service_information', autospec=True)
 @patch('paasta_tools.marathon_tools.service_configuration_lib.read_extra_service_information', autospec=True)
-def test_old_and_new_ways_load_the_same_marathon_configs(
+def test_old_and_new_ways_load_the_same_marathon_noodles(
         mock_marathon_tools_read_extra_service_information,
         mock_read_extra_service_information,
         mock_marathon_tools_load_deployments_json,
@@ -315,14 +313,14 @@ def test_old_and_new_ways_load_the_same_marathon_configs(
             cluster=TEST_CLUSTER_NAME, load_deployments=True, soa_dir=TEST_SOA_DIR,
         ),
     ]
-    assert [i for i in s.instance_configs(TEST_CLUSTER_NAME, 'marathon')] == expected
+    assert [i for i in s.noodles(TEST_CLUSTER_NAME, 'marathon')] == expected
 
 
-@patch('paasta_tools.paasta_service_config.load_deployments_json', autospec=True)
+@patch('paasta_tools.noodle_maker.load_deployments_json', autospec=True)
 @patch('paasta_tools.chronos_tools.load_deployments_json', autospec=True)
-@patch('paasta_tools.paasta_service_config.read_extra_service_information', autospec=True)
+@patch('paasta_tools.noodle_maker.read_extra_service_information', autospec=True)
 @patch('paasta_tools.chronos_tools.service_configuration_lib.read_extra_service_information', autospec=True)
-def test_old_and_new_ways_load_the_same_chronos_configs(
+def test_old_and_new_ways_load_the_same_chronos_noodles(
         mock_chronos_tools_read_extra_service_information,
         mock_read_extra_service_information,
         mock_chronos_tools_load_deployments_json,
@@ -343,14 +341,14 @@ def test_old_and_new_ways_load_the_same_chronos_configs(
             cluster=TEST_CLUSTER_NAME, load_deployments=True, soa_dir=TEST_SOA_DIR,
         ),
     ]
-    assert [i for i in s.instance_configs(TEST_CLUSTER_NAME, 'chronos')] == expected
+    assert [i for i in s.noodles(TEST_CLUSTER_NAME, 'chronos')] == expected
 
 
-@patch('paasta_tools.paasta_service_config.load_v2_deployments_json', autospec=True)
+@patch('paasta_tools.noodle_maker.load_v2_deployments_json', autospec=True)
 @patch('paasta_tools.adhoc_tools.load_v2_deployments_json', autospec=True)
-@patch('paasta_tools.paasta_service_config.read_extra_service_information', autospec=True)
+@patch('paasta_tools.noodle_maker.read_extra_service_information', autospec=True)
 @patch('paasta_tools.adhoc_tools.service_configuration_lib.read_extra_service_information', autospec=True)
-def test_old_and_new_ways_load_the_same_adhoc_configs(
+def test_old_and_new_ways_load_the_same_adhoc_noodles(
         mock_adhoc_tools_read_extra_service_information,
         mock_read_extra_service_information,
         mock_adhoc_tools_load_deployments_json,
@@ -371,18 +369,18 @@ def test_old_and_new_ways_load_the_same_adhoc_configs(
             cluster=TEST_CLUSTER_NAME, load_deployments=True, soa_dir=TEST_SOA_DIR,
         ),
     ]
-    assert [i for i in s.instance_configs(TEST_CLUSTER_NAME, 'adhoc')] == expected
+    assert [i for i in s.noodles(TEST_CLUSTER_NAME, 'adhoc')] == expected
 
 
-@patch('paasta_tools.paasta_service_config.load_deployments_json', autospec=True)
-@patch('paasta_tools.paasta_service_config.read_extra_service_information', autospec=True)
-def test_instance_config(
+@patch('paasta_tools.noodle_maker.load_deployments_json', autospec=True)
+@patch('paasta_tools.noodle_maker.read_extra_service_information', autospec=True)
+def test_noodle(
         mock_read_extra_service_information,
         mock_load_deployments_json,
 ):
     mock_read_extra_service_information.return_value = marathon_cluster_config()
     mock_load_deployments_json.return_value = deployment_json()
-    expected_instance_config = MarathonServiceConfig(
+    expected_noodle = MarathonServiceConfig(
         service=TEST_SERVICE_NAME,
         cluster=TEST_CLUSTER_NAME,
         instance='main',
@@ -399,5 +397,5 @@ def test_instance_config(
         soa_dir=TEST_SOA_DIR,
     )
     s = create_test_service()
-    instance_config = s.instance_config(TEST_CLUSTER_NAME, 'main')
-    assert instance_config == expected_instance_config
+    noodle = s.noodle(TEST_CLUSTER_NAME, 'main')
+    assert noodle == expected_noodle

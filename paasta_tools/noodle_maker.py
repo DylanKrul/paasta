@@ -32,25 +32,25 @@ log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
 
 
-class PaastaServiceConfig():
-    """PaastaServiceConfig provides useful methods for reading soa-configs and
-    iterating instance names or InstanceConfigs objects.
+class NoodleMaker():
+    """NoodleMaker provides useful methods for reading soa-configs and
+    iterating instance names or Noodle objects.
 
     :Example:
 
-    >>> from paasta_tools.paasta_service_config import PaastaServiceConfig
+    >>> from paasta_tools.paasta_service_config import NoodleMaker
     >>> from paasta_tools.utils import DEFAULT_SOA_DIR
     >>>
-    >>> sc = PaastaServiceConfig(service='fake_service', soa_dir=DEFAULT_SOA_DIR)
+    >>> sc = NoodleMaker(service='fake_service', soa_dir=DEFAULT_SOA_DIR)
     >>>
-    >>> for instance in sc.instances(cluster='fake_cluster', instance_type='marathon'):
+    >>> for instance in sc.instance_names(cluster='fake_cluster', instance_type='marathon'):
     ...     print(instance)
     ...
     main
     canary
     >>>
-    >>> for instance_config in sc.instance_configs(cluster='fake_cluster', instance_type='marathon'):
-    ...     print(instance_config.get_instance())
+    >>> for noodle in sc.noodles(cluster='fake_cluster', instance_type='marathon'):
+    ...     print(noodle.get_instance())
     ...
     main
     canary
@@ -78,7 +78,7 @@ class PaastaServiceConfig():
         for cluster in self._clusters:
             yield cluster
 
-    def instances(self, cluster: str, instance_type: str):
+    def instance_names(self, cluster: str, instance_type: str):
         """Returns an iterator that yields instance names as strings.
 
         :param cluster: The cluster name
@@ -90,8 +90,8 @@ class PaastaServiceConfig():
         for instance in self._framework_configs.get((cluster, instance_type), []):
             yield instance
 
-    def instance_configs(self, cluster: str, instance_type: str):
-        """Returns an iterator that yields InstanceConfig objects.
+    def noodles(self, cluster: str, instance_type: str):
+        """Returns an iterator that yields Noodle objects.
 
         :param cluster: The cluster name
         :param instance_type: One of paasta_tools.utils.INSTANCE_TYPES
@@ -104,8 +104,8 @@ class PaastaServiceConfig():
         for instance, config in self._framework_configs.get((cluster, instance_type), []).items():
             yield create_config_function(cluster, instance, config)
 
-    def instance_config(self, cluster: str, instance: str):
-        """Returns an InstanceConfig object for whatever type of instance it is.
+    def noodle(self, cluster: str, instance: str):
+        """Returns a Noodle object for whatever type of instance it is.
 
         :param cluster: The cluster name
         :param instance: The instance name

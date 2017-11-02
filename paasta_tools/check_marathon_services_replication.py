@@ -42,7 +42,7 @@ from paasta_tools import marathon_tools
 from paasta_tools import monitoring_tools
 from paasta_tools.marathon_tools import format_job_id
 from paasta_tools.mesos_tools import get_slaves
-from paasta_tools.paasta_service_config import PaastaServiceConfig
+from paasta_tools.noodle_maker import NoodleMaker
 from paasta_tools.smartstack_tools import SmartstackReplicationChecker
 from paasta_tools.utils import _log
 from paasta_tools.utils import datetime_from_utc_to_local
@@ -351,18 +351,18 @@ def main():
     smartstack_replication_checker = SmartstackReplicationChecker(mesos_slaves, system_paasta_config)
 
     for service in list_services(soa_dir=args.soa_dir):
-        service_config = PaastaServiceConfig(service=service, soa_dir=args.soa_dir)
-        for instance_config in service_config.instance_configs(cluster=cluster, instance_type='marathon'):
-            if instance_config.get_docker_image():
+        noodle_maker = NoodleMaker(service=service, soa_dir=args.soa_dir)
+        for noodle in noodle_maker.noodles(cluster=cluster, instance_type='marathon'):
+            if noodle.get_docker_image():
                 check_service_replication(
-                    instance_config=instance_config,
+                    instance_config=noodle,
                     all_tasks=all_tasks,
                     smartstack_replication_checker=smartstack_replication_checker,
                 )
             else:
                 log.debug(
                     '%s is not deployed. Skipping replication monitoring.' %
-                    instance_config.job_id,
+                    noodle.job_id,
                 )
 
 

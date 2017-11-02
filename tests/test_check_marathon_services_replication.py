@@ -645,10 +645,10 @@ def test_main(instance_config):
         'paasta_tools.check_marathon_services_replication.get_slaves',
         autospec=True,
     ), mock.patch(
-        'paasta_tools.check_marathon_services_replication.PaastaServiceConfig',
+        'paasta_tools.check_marathon_services_replication.NoodleMaker',
         autospec=True,
-    ) as mock_paasta_service_config:
-        mock_paasta_service_config.return_value.instance_configs.return_value = [instance_config]
+    ) as mock_noodle_maker:
+        mock_noodle_maker.return_value.noodles.return_value = [instance_config]
         mock_client = mock.Mock()
         mock_client.list_tasks.return_value = []
         mock_get_marathon_client.return_value = mock_client
@@ -657,7 +657,7 @@ def test_main(instance_config):
         mock_load_system_paasta_config.return_value.get_cluster = mock.Mock(return_value='fake_cluster')
         check_marathon_services_replication.main()
         mock_parse_args.assert_called_once_with()
-        mock_paasta_service_config.assert_called_once_with(
+        mock_noodle_maker.assert_called_once_with(
             service='a',
             soa_dir=soa_dir,
         )
