@@ -499,9 +499,21 @@ class TestYelpSoaEventHandler(unittest.TestCase):
         name = mock.PropertyMock(return_value='marathon-cluster.yaml')
         type(mock_event).name = name
         assert mock_event == self.handler.filter_event(mock_event)
+
         name = mock.PropertyMock(return_value='deployments.json')
         type(mock_event).name = name
         assert mock_event == self.handler.filter_event(mock_event)
+
+        name = mock.PropertyMock(return_value='test-secret.json')
+        type(mock_event).name = name
+        mock_event.path = '/nail/blah/service/secrets'
+        assert mock_event == self.handler.filter_event(mock_event)
+
+        name = mock.PropertyMock(return_value='something.json')
+        type(mock_event).name = name
+        mock_event.path = '/nail/blah/service'
+        assert self.handler.filter_event(mock_event) is None
+
         name = mock.PropertyMock(return_value='another.file')
         type(mock_event).name = name
         assert self.handler.filter_event(mock_event) is None
@@ -537,6 +549,7 @@ class TestYelpSoaEventHandler(unittest.TestCase):
 
     def test_process_default(self):
         mock_event = mock.Mock(path='/folder/universe')
+        type(mock_event).name = 'marathon-blah.yaml'
         with mock.patch(
             'paasta_tools.deployd.watchers.YelpSoaEventHandler.bounce_service', autospec=True,
         ) as mock_bounce_service, mock.patch(
@@ -545,6 +558,13 @@ class TestYelpSoaEventHandler(unittest.TestCase):
             'paasta_tools.deployd.watchers.YelpSoaEventHandler.filter_event', autospec=True,
         ) as mock_filter_event:
             mock_filter_event.return_value = mock_event
+            self.handler.process_default(mock_event)
+            mock_watch_folder.assert_called_with(self.handler, mock_event)
+            mock_filter_event.assert_called_with(self.handler, mock_event)
+            mock_bounce_service.assert_called_with(self.handler, 'universe')
+
+            mock_event = mock.Mock(path='/folder/universe/secrets')
+            type(mock_event).name = 'some-secret.json'
             self.handler.process_default(mock_event)
             mock_watch_folder.assert_called_with(self.handler, mock_event)
             mock_filter_event.assert_called_with(self.handler, mock_event)

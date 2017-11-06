@@ -59,6 +59,8 @@ from paasta_tools.mesos_tools import filter_mesos_slaves_by_blacklist
 from paasta_tools.mesos_tools import get_mesos_network_for_net
 from paasta_tools.mesos_tools import get_mesos_slaves_grouped_by_attribute
 from paasta_tools.mesos_tools import mesos_services_running_here
+from paasta_tools.secret_tools import get_hmac_for_secret
+from paasta_tools.secret_tools import is_secret_ref
 from paasta_tools.utils import _log
 from paasta_tools.utils import BranchDict
 from paasta_tools.utils import compose_job_id
@@ -674,7 +676,7 @@ class MarathonServiceConfig(LongRunningServiceConfig):
         code_sha = get_code_sha_from_dockerurl(docker_url)
 
         config_hash = get_config_hash(
-            self.sanitize_for_config_hash(complete_config),
+            self.sanitize_for_config_hash(complete_config, system_paasta_config),
             force_bounce=self.get_force_bounce(),
         )
         complete_config['id'] = format_job_id(self.service, self.instance, code_sha, config_hash)
@@ -682,16 +684,44 @@ class MarathonServiceConfig(LongRunningServiceConfig):
         log.debug("Complete configuration for instance is: %s", complete_config)
         return complete_config
 
-    def sanitize_for_config_hash(self, config: FormattedMarathonAppDict) -> Dict[str, Any]:
+    def sanitize_for_config_hash(
+        self,
+        config: FormattedMarathonAppDict,
+        system_paasta_config: SystemPaastaConfig,
+    ) -> Dict[str, Any]:
         """Removes some data from complete_config to make it suitable for
         calculation of config hash.
+
+        Also adds secret HMACs so that we bounce if secret data has changed.
+        We need this because the reference to the secret is all Marathon gets
+        and this will not change.
 
         :param config: complete_config hash to sanitize
         :returns: sanitized copy of complete_config hash
         """
         ahash = {key: copy.deepcopy(value) for key, value in config.items() if key not in CONFIG_HASH_BLACKLIST}
         ahash['container']['docker']['parameters'] = self.format_docker_parameters(with_labels=False)  # type: ignore
+        secret_hashes = self.get_secret_hashes(config, system_paasta_config)
+        if secret_hashes:
+            ahash['paasta_secrets'] = secret_hashes
         return ahash
+
+    def get_secret_hashes(
+        self,
+        config: FormattedMarathonAppDict,
+        system_paasta_config: SystemPaastaConfig,
+    ) -> Dict[str, str]:
+
+        secret_hashes = {}
+        for var, val in config['env'].items():
+            if is_secret_ref(val):
+                secret_hashes[val] = get_hmac_for_secret(
+                    val=val,
+                    service=self.service,
+                    soa_dir=self.soa_dir,
+                    system_paasta_config=system_paasta_config,
+                )
+        return secret_hashes
 
     def get_healthchecks(
         self,

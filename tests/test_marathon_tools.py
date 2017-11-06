@@ -25,10 +25,12 @@ from pytest import raises
 from paasta_tools import long_running_service_tools
 from paasta_tools import marathon_tools
 from paasta_tools.marathon_serviceinit import desired_state_human
+from paasta_tools.marathon_tools import CONFIG_HASH_BLACKLIST
 from paasta_tools.marathon_tools import MarathonServiceConfigDict
 from paasta_tools.mesos.exceptions import NoSlavesAvailableError
 from paasta_tools.utils import BranchDict
 from paasta_tools.utils import compose_job_id
+from paasta_tools.utils import DEFAULT_SOA_DIR
 from paasta_tools.utils import DeploymentsJson
 from paasta_tools.utils import DockerVolume
 from paasta_tools.utils import SystemPaastaConfig
@@ -1713,6 +1715,70 @@ class TestMarathonServiceConfig(object):
             branch_dict={},
         )
         assert marathon_config.get_healthcheck_mode(namespace_config) is None
+
+    def test_sanitize_for_config_hash(self):
+        with mock.patch(
+            'paasta_tools.marathon_tools.MarathonServiceConfig.format_docker_parameters', autospec=True,
+        ) as mock_format_docker_parameters, mock.patch(
+            'paasta_tools.marathon_tools.MarathonServiceConfig.get_secret_hashes', autospec=True,
+        ) as mock_get_secret_hashes:
+            mock_get_secret_hashes.return_value = {}
+            mock_system_config = mock.Mock()
+            conf = {
+                'env': {'SOME_VAR': 'SOME_VAL'},
+                'container': {'docker': {'parameters': None}},
+                next(iter(CONFIG_HASH_BLACKLIST)): 'something',
+            }
+            marathon_config = marathon_tools.MarathonServiceConfig(
+                service='service',
+                cluster='cluster',
+                instance='instance',
+                config_dict=conf,
+                branch_dict={},
+            )
+            expected = {
+                'env': {'SOME_VAR': 'SOME_VAL'},
+                'container': {'docker': {'parameters': mock_format_docker_parameters.return_value}},
+            }
+            assert marathon_config.sanitize_for_config_hash(conf, mock_system_config) == expected
+
+            mock_get_secret_hashes.return_value = {'some': 'thing'}
+            expected = {
+                'env': {'SOME_VAR': 'SOME_VAL'},
+                'container': {'docker': {'parameters': mock_format_docker_parameters.return_value}},
+                'paasta_secrets': {'some': 'thing'},
+            }
+            assert marathon_config.sanitize_for_config_hash(conf, mock_system_config) == expected
+
+    def test_get_secret_hashes(self):
+        with mock.patch(
+            'paasta_tools.marathon_tools.is_secret_ref', autospec=True, return_value=False,
+        ) as mock_is_secret_ref, mock.patch(
+            'paasta_tools.marathon_tools.get_hmac_for_secret', autospec=True,
+        ) as mock_get_hmac_for_secret:
+            mock_system_config = mock.Mock()
+            conf = {'env': {'SOME_VAR': 'SOME_VAL'}}
+            marathon_config = marathon_tools.MarathonServiceConfig(
+                service='service',
+                cluster='cluster',
+                instance='instance',
+                config_dict=conf,
+                branch_dict={},
+            )
+            assert marathon_config.get_secret_hashes(conf, mock_system_config) == {}
+            mock_is_secret_ref.assert_called_with("SOME_VAL")
+            assert not mock_get_hmac_for_secret.called
+
+            mock_is_secret_ref.return_value = True
+            expected = {"SOME_VAL": mock_get_hmac_for_secret.return_value}
+            assert marathon_config.get_secret_hashes(conf, mock_system_config) == expected
+            mock_is_secret_ref.assert_called_with("SOME_VAL")
+            mock_get_hmac_for_secret.assert_called_with(
+                val="SOME_VAL",
+                service="service",
+                soa_dir=DEFAULT_SOA_DIR,
+                system_paasta_config=mock_system_config,
+            )
 
     def test_get_healthchecks_http_overrides(self):
         fake_path = '/mycoolstatus'
