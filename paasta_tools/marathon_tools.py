@@ -701,19 +701,19 @@ class MarathonServiceConfig(LongRunningServiceConfig):
         """
         ahash = {key: copy.deepcopy(value) for key, value in config.items() if key not in CONFIG_HASH_BLACKLIST}
         ahash['container']['docker']['parameters'] = self.format_docker_parameters(with_labels=False)  # type: ignore
-        secret_hashes = self.get_secret_hashes(config, system_paasta_config)
+        secret_hashes = self.get_secret_hashes(config['env'], system_paasta_config)
         if secret_hashes:
             ahash['paasta_secrets'] = secret_hashes
         return ahash
 
     def get_secret_hashes(
         self,
-        config: FormattedMarathonAppDict,
+        env: Dict[str, str],
         system_paasta_config: SystemPaastaConfig,
     ) -> Dict[str, str]:
 
         secret_hashes = {}
-        for var, val in config['env'].items():
+        for var, val in env.items():
             if is_secret_ref(val):
                 secret_hashes[val] = get_hmac_for_secret(
                     val=val,

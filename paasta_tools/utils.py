@@ -1365,6 +1365,7 @@ SystemPaastaConfigDict = TypedDict(
         'use_mesos_healthchecks': bool,
         'taskproc': Dict,
         'disabled_watchers': List,
+        'vault_environment': str,
     },
     total=False,
 )
